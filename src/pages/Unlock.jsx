@@ -9,17 +9,19 @@ import {
   biometricsEnrolled,
   unlockWithBiometrics,
 } from "../lib/auth.js";
+import { restoreVaultFile } from "../lib/vault.js";
 import Icon from "../components/Icon.jsx";
 
 export default function Unlock() {
   const navigate = useNavigate();
-  const { ready, needsSetup, unlock, completeSetup } = useApp();
+  const { ready, needsSetup, unlock, completeSetup, refreshAuthGate } = useApp();
   const [code, setCode] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [bioOffer, setBioOffer] = useState(false);
   const [hasBio, setHasBio] = useState(false);
+  const [restored, setRestored] = useState(false);
   const inputRef = useRef(null);
 
   useEffect(() => {
@@ -31,7 +33,7 @@ export default function Unlock() {
       setBioOffer(biometricsSupported());
       setHasBio(await biometricsEnrolled());
     })();
-  }, []);
+  }, [needsSetup, restored]);
 
   // Auto-try fingerprint on arrival if it's set up.
   useEffect(() => {
@@ -145,6 +147,12 @@ export default function Unlock() {
               {error}
             </p>
           )}
+          {restored && !error && (
+            <p className="text-status-nominal font-label-sm text-label-sm text-center flex items-center justify-center gap-1">
+              <Icon name="check_circle" className="text-[15px]" />
+              Vault restored. {needsSetup ? "Create a passcode to open it." : "Unlock with that lab's passcode."}
+            </p>
+          )}
 
           <button type="submit" className="btn-primary w-full" disabled={busy}>
             <Icon name={needsSetup ? "lock" : "lock_open"} className="text-[18px]" />
@@ -162,8 +170,37 @@ export default function Unlock() {
           </button>
         )}
 
+        <label className={`btn-ghost w-full mt-3 cursor-pointer ${busy ? "opacity-50 pointer-events-none" : ""}`}>
+          <Icon name="upload" className="text-[18px]" /> Restore vault backup
+          <input
+            type="file"
+            accept="application/json,.json"
+            className="sr-only"
+            disabled={busy}
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (!file) return;
+              setError("");
+              setBusy(true);
+              try {
+                await restoreVaultFile(file);
+                await refreshAuthGate();
+                setRestored(true);
+                setCode("");
+                setConfirm("");
+              } catch (err) {
+                setError(err.message || "Could not restore that vault file.");
+              } finally {
+                setBusy(false);
+              }
+            }}
+          />
+        </label>
+
         <p className="text-center text-text-muted font-body-sm text-body-sm mt-6">
-          Everything stays on this device. No account, no cloud.
+          Everything stays on this device. App updates do not copy your lab to a new
+          address — keep a vault backup in Settings.
         </p>
       </div>
     </div>

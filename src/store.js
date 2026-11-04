@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { hasPasscode } from "./lib/auth.js";
-import { seedIfNeeded } from "./lib/seed.js";
+import { requestPersistentStorage } from "./lib/vault.js";
 
 // App-wide state. Keeps the auth gate (locked/unlocked), whether a passcode has
 // been set up yet, and a counter the pages bump to force data re-reads after
@@ -13,7 +13,7 @@ export const useApp = create((set, get) => ({
 
   async boot() {
     try {
-      await seedIfNeeded();
+      requestPersistentStorage();
       const configured = await hasPasscode();
       set({ ready: true, needsSetup: !configured, unlocked: false });
     } catch (e) {
@@ -23,10 +23,17 @@ export const useApp = create((set, get) => ({
   },
 
   completeSetup() {
+    requestPersistentStorage();
     set({ needsSetup: false, unlocked: true });
   },
 
+  async refreshAuthGate() {
+    const configured = await hasPasscode();
+    set({ needsSetup: !configured, unlocked: false, dataVersion: get().dataVersion + 1 });
+  },
+
   unlock() {
+    requestPersistentStorage();
     set({ unlocked: true });
   },
 

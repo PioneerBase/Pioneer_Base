@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { listProjects, listGenres, listEntries, listMedia, projectByteSize } from "../db.js";
 import { exportBatch } from "../lib/export.js";
 import { humanSize } from "../lib/media.js";
@@ -341,6 +342,11 @@ export default function Export() {
       </button>
       <p className="text-center font-label-sm text-label-sm text-text-muted">
         For a fillable PDF of one experiment, open the project and use Lab PDF.
+        For a full lab backup that survives a new site address, use{" "}
+        <Link to="/settings" className="text-primary hover:underline">
+          Settings → Download vault backup
+        </Link>
+        .
       </p>
     </div>
   );

@@ -9,7 +9,14 @@ import {
   enrollBiometrics,
   disableBiometrics,
 } from "../lib/auth.js";
-import { getDB } from "../db.js";
+import { getDB, metaGet } from "../db.js";
+import {
+  backupIsStale,
+  downloadVaultBackup,
+  requestPersistentStorage,
+  restoreVaultFile,
+  storageIsPersisted,
+} from "../lib/vault.js";
 import Icon from "../components/Icon.jsx";
 
 const STORE_META = {
@@ -23,6 +30,7 @@ const STORE_META = {
 export default function Settings() {
   const navigate = useNavigate();
   const lock = useApp((s) => s.lock);
+  const bumpData = useApp((s) => s.bumpData);
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [msg, setMsg] = useState("");
@@ -31,6 +39,11 @@ export default function Settings() {
   const [bioOn, setBioOn] = useState(false);
   const [counts, setCounts] = useState(null);
   const [estimate, setEstimate] = useState(null);
+  const [lastBackupAt, setLastBackupAt] = useState(null);
+  const [persisted, setPersisted] = useState(false);
+  const [vaultBusy, setVaultBusy] = useState(false);
+  const [vaultMsg, setVaultMsg] = useState("");
+  const [vaultMsgErr, setVaultMsgErr] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -48,6 +61,8 @@ export default function Settings() {
     if (navigator.storage?.estimate) {
       setEstimate(await navigator.storage.estimate());
     }
+    setLastBackupAt((await metaGet("lastBackupAt")) || null);
+    setPersisted(await storageIsPersisted());
   }
 
   function flash(text, isErr = false) {
@@ -190,6 +205,95 @@ export default function Settings() {
           <Icon name="cloud_off" className="text-[15px] text-status-nominal" />
           All data lives in this browser on this device. Nothing is uploaded.
         </p>
+        <p className="font-label-sm text-label-sm text-text-muted mt-2">
+          {persisted
+            ? "This browser has promised not to evict the vault for disk space."
+            : "Storage is not marked persistent yet — backups still matter."}
+        </p>
+      </section>
+
+      <section className="panel p-space-md">
+        <h2 className="label mb-3 flex items-center gap-1.5">
+          <Icon name="save" className="text-[16px] text-tertiary" /> Vault backup
+        </h2>
+        <p className="font-body-sm text-body-sm text-text-muted">
+          App updates do not move your lab. It stays in this browser, on this site address.
+          A GitHub username change, a different browser, or clearing site data starts an empty
+          vault. Keep a backup file somewhere safe (drive, USB, another folder).
+        </p>
+        {lastBackupAt ? (
+          <p className={`font-label-sm text-label-sm mt-3 ${backupIsStale(lastBackupAt) ? "text-tertiary" : "text-status-nominal"}`}>
+            Last backup: {new Date(lastBackupAt).toLocaleString()}
+          </p>
+        ) : (
+          <p className="font-label-sm text-label-sm text-tertiary mt-3">No vault backup on this device yet.</p>
+        )}
+        <div className="flex flex-wrap gap-2 mt-4">
+          <button
+            className="btn-primary"
+            disabled={vaultBusy}
+            onClick={async () => {
+              setVaultBusy(true);
+              setVaultMsg("");
+              try {
+                await downloadVaultBackup();
+                await requestPersistentStorage();
+                await loadStats();
+                setVaultMsgErr(false);
+                setVaultMsg("Vault file saved. Keep it off this browser.");
+              } catch {
+                setVaultMsgErr(true);
+                setVaultMsg("Could not write the vault backup.");
+              } finally {
+                setVaultBusy(false);
+              }
+            }}
+          >
+            <Icon name="download" className="text-[16px]" /> Download vault backup
+          </button>
+          <label className={`btn-ghost cursor-pointer ${vaultBusy ? "opacity-50 pointer-events-none" : ""}`}>
+            <Icon name="upload" className="text-[16px]" /> Restore vault file
+            <input
+              type="file"
+              accept="application/json,.json"
+              className="sr-only"
+              disabled={vaultBusy}
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (!file) return;
+                const ok = window.confirm(
+                  "Restore replaces every project, log, idea, and file currently in this browser with the backup. Continue?"
+                );
+                if (!ok) return;
+                setVaultBusy(true);
+                setVaultMsg("");
+                try {
+                  await restoreVaultFile(file);
+                  await loadStats();
+                  bumpData();
+                  setVaultMsgErr(false);
+                  setVaultMsg("Vault restored. Unlock with the passcode from that backup if prompted.");
+                } catch (err) {
+                  setVaultMsgErr(true);
+                  setVaultMsg(err.message || "Could not restore that file.");
+                } finally {
+                  setVaultBusy(false);
+                }
+              }}
+            />
+          </label>
+        </div>
+        {vaultMsg && (
+          <p
+            className={`font-label-sm text-label-sm flex items-center gap-1 mt-3 ${
+              vaultMsgErr ? "text-status-critical" : "text-status-nominal"
+            }`}
+          >
+            <Icon name={vaultMsgErr ? "error" : "check_circle"} className="text-[15px]" />
+            {vaultMsg}
+          </p>
+        )}
       </section>
 
       <section className="panel p-space-md">

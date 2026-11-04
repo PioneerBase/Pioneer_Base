@@ -376,6 +376,56 @@ export async function deleteIdea(number) {
 }
 
 /* ------------------------------------------------------------------ */
+/* full-vault dump / replace (portable backup, origin-independent)     */
+/* ------------------------------------------------------------------ */
+const VAULT_STORES = [
+  "meta",
+  "genres",
+  "projects",
+  "entries",
+  "media",
+  "milestones",
+  "reminders",
+  "ideas",
+];
+
+export async function dumpVaultRecords() {
+  const db = await getDB();
+  const dump = {};
+  const metaItems = [];
+  let cursor = await db.transaction("meta").store.openCursor();
+  while (cursor) {
+    metaItems.push({ key: cursor.key, value: cursor.value });
+    cursor = await cursor.continue();
+  }
+  dump.meta = metaItems;
+  for (const name of VAULT_STORES) {
+    if (name === "meta") continue;
+    dump[name] = db.objectStoreNames.contains(name) ? await db.getAll(name) : [];
+  }
+  return dump;
+}
+
+export async function replaceVaultRecords(dump) {
+  const db = await getDB();
+  const names = VAULT_STORES.filter((n) => db.objectStoreNames.contains(n));
+  const tx = db.transaction(names, "readwrite");
+  for (const name of names) {
+    await tx.objectStore(name).clear();
+  }
+  for (const item of dump.meta || []) {
+    await tx.objectStore("meta").put(item.value, item.key);
+  }
+  for (const name of names) {
+    if (name === "meta") continue;
+    for (const rec of dump[name] || []) {
+      await tx.objectStore(name).put(rec);
+    }
+  }
+  await tx.done;
+}
+
+/* ------------------------------------------------------------------ */
 /* search (keyword across projects, entries, ideas)                    */
 /* ------------------------------------------------------------------ */
 export async function search(query) {

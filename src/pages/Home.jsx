@@ -10,8 +10,11 @@ import {
   listEntries,
   recentEntries,
   getGenre,
+  metaGet,
 } from "../db.js";
 import { useApp } from "../store.js";
+import { seedIfNeeded } from "../lib/seed.js";
+import { backupIsStale, downloadVaultBackup } from "../lib/vault.js";
 import ProjectCard from "../components/ProjectCard.jsx";
 import Timeline from "../components/Timeline.jsx";
 import EmptyState from "../components/EmptyState.jsx";
@@ -44,6 +47,8 @@ export default function Home() {
   const [projMap, setProjMap] = useState({});
   const [query, setQuery] = useState("");
   const [showNew, setShowNew] = useState(false);
+  const [lastBackupAt, setLastBackupAt] = useState(null);
+  const [backupBusy, setBackupBusy] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -64,6 +69,7 @@ export default function Home() {
         setProjects(all);
         setRecent(rec);
         setProjMap(Object.fromEntries(all.map((x) => [x.id, x])));
+        setLastBackupAt((await metaGet("lastBackupAt")) || null);
         if (p) {
           const [pg, ms, entries] = await Promise.all([
             p.genreId ? getGenre(p.genreId) : null,
@@ -121,6 +127,35 @@ export default function Home() {
         </button>
       </header>
 
+      {hasAnything && backupIsStale(lastBackupAt) && (
+        <div className="panel p-4 flex flex-col sm:flex-row sm:items-center gap-3 border-tertiary/40">
+          <div className="min-w-0 flex-1">
+            <p className="font-label-sm text-label-sm text-tertiary uppercase tracking-wider flex items-center gap-1.5">
+              <Icon name="save" className="text-[16px]" /> Vault backup
+            </p>
+            <p className="font-body-sm text-body-sm text-text-muted mt-1">
+              This lab lives only in this browser. Download a vault file so an update, a new
+              site address, or cleared site data cannot take the work with it.
+            </p>
+          </div>
+          <button
+            className="btn-primary flex-shrink-0"
+            disabled={backupBusy}
+            onClick={async () => {
+              setBackupBusy(true);
+              try {
+                await downloadVaultBackup();
+                setLastBackupAt(new Date().toISOString());
+              } finally {
+                setBackupBusy(false);
+              }
+            }}
+          >
+            <Icon name="download" className="text-[16px]" /> Save vault backup
+          </button>
+        </div>
+      )}
+
       {/* Telemetry stat bar */}
       <div className="grid grid-cols-3 gap-3">
         {stats.map((s) => {
@@ -159,9 +194,20 @@ export default function Home() {
           title="No experiments yet."
           hint="Create your first project, experiment, or invention to get started."
           action={
-            <button className="btn-primary" onClick={() => setShowNew(true)}>
-              <Icon name="add" className="text-[18px]" /> New project
-            </button>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <button className="btn-primary" onClick={() => setShowNew(true)}>
+                <Icon name="add" className="text-[18px]" /> New project
+              </button>
+              <button
+                className="btn-ghost"
+                onClick={async () => {
+                  await seedIfNeeded();
+                  bumpData();
+                }}
+              >
+                <Icon name="science" className="text-[18px]" /> Load sample lab
+              </button>
+            </div>
           }
         />
       )}
